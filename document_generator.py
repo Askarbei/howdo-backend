@@ -1,5 +1,6 @@
 """
 Модуль для генерации документов в формате Word (.docx)
+ИСПРАВЛЕННАЯ ВЕРСИЯ с правильным mapping данных
 """
 
 import json
@@ -21,23 +22,13 @@ class DocumentGenerator:
             'procedure': 'procedure_template.html'
         }
     
-    def parse_answers(self, answers_json):
-        """Парсит ответы пользователя из JSON формата"""
-        if isinstance(answers_json, str):
-            answers = json.loads(answers_json)
-        else:
-            answers = answers_json
-        
-        # Преобразуем в удобный формат
-        parsed = {}
-        for key, value in answers.items():
-            if key.startswith('q'):
-                parsed[key] = value
-        
-        return parsed
-    
-    def generate_sok_docx(self, answers):
-        """Генерирует СОК в формате Word"""
+    def generate_sok_docx(self, data):
+        """
+        Генерирует СОК в формате Word
+        Принимает data словарь с ключами:
+        - company_name, business_area, process_name, target_audience, 
+        - process_steps, required_resources, expected_results
+        """
         doc = Document()
         
         # Настройка стилей
@@ -55,87 +46,102 @@ class DocumentGenerator:
         info_table = doc.add_table(rows=4, cols=2)
         info_table.style = 'Table Grid'
         
+        # ИСПРАВЛЕННЫЙ MAPPING ДАННЫХ:
         info_data = [
-            ('Компания:', answers.get('q1', 'Не указано')),
-            ('Операция:', answers.get('q3', 'Не указано')),
-            ('Исполнители:', answers.get('q4', 'Не указано')),
-            ('Дата создания:', datetime.now().strftime('%d.%m.%Y'))
+            ('Компания:', data.get('company_name', 'Не указано')),
+            ('Операция:', data.get('process_name', 'Не указано')),
+            ('Исполнители:', data.get('target_audience', 'Не указано')),
+            ('Дата создания:', data.get('creation_date', datetime.now().strftime('%d.%m.%Y')))
         ]
         
         for i, (label, value) in enumerate(info_data):
             info_table.cell(i, 0).text = label
-            info_table.cell(i, 1).text = value
+            info_table.cell(i, 1).text = str(value)
         
-        # Таблица операций
+        # Заголовок секции операций
         doc.add_paragraph()
-        doc.add_heading('ПОСЛЕДОВАТЕЛЬНОСТЬ ОПЕРАЦИЙ', 2)
+        doc.add_heading('ПОСЛЕДОВАТЕЛЬНОСТЬ ОПЕРАЦИЙ', 2).alignment = WD_ALIGN_PARAGRAPH.CENTER
         
-        # Парсим шаги из q5
-        steps_text = answers.get('q5', '')
-        steps = [step.strip() for step in steps_text.split('.') if step.strip()]
-        
-        if steps:
-            ops_table = doc.add_table(rows=len(steps) + 1, cols=4)
-            ops_table.style = 'Table Grid'
-            ops_table.alignment = WD_TABLE_ALIGNMENT.CENTER
+        # Парсим шаги из process_steps
+        steps_text = data.get('process_steps', '')
+        if steps_text and steps_text != 'Не указано':
+            # Разбиваем по цифрам или точкам
+            steps = []
+            if '1.' in steps_text or '2.' in steps_text:
+                # Если есть нумерация
+                steps = [step.strip() for step in re.split(r'\d+\.', steps_text) if step.strip()]
+            else:
+                # Если нет нумерации, разбиваем по предложениям
+                steps = [step.strip() for step in steps_text.split('.') if step.strip()]
             
-            # Заголовки таблицы
-            headers = ['№', 'Операция', 'Описание', 'Контроль']
-            for i, header in enumerate(headers):
-                cell = ops_table.cell(0, i)
-                cell.text = header
-                # Жирный шрифт для заголовков
-                for paragraph in cell.paragraphs:
-                    for run in paragraph.runs:
-                        run.font.bold = True
-            
-            # Заполнение операций
-            for i, step in enumerate(steps, 1):
-                ops_table.cell(i, 0).text = str(i)
-                ops_table.cell(i, 1).text = f"Шаг {i}"
-                ops_table.cell(i, 2).text = step
-                ops_table.cell(i, 3).text = "✓"
+            if steps:
+                ops_table = doc.add_table(rows=len(steps) + 1, cols=4)
+                ops_table.style = 'Table Grid'
+                ops_table.alignment = WD_TABLE_ALIGNMENT.CENTER
+                
+                # Заголовки таблицы
+                headers = ['№', 'Операция', 'Описание', 'Контроль']
+                for i, header in enumerate(headers):
+                    cell = ops_table.cell(0, i)
+                    cell.text = header
+                    # Жирный шрифт для заголовков
+                    for paragraph in cell.paragraphs:
+                        for run in paragraph.runs:
+                            run.font.bold = True
+                
+                # Заполнение операций
+                for i, step in enumerate(steps, 1):
+                    ops_table.cell(i, 0).text = str(i)
+                    ops_table.cell(i, 1).text = f"Этап {i}"
+                    ops_table.cell(i, 2).text = step
+                    ops_table.cell(i, 3).text = "✓"
         
         # Ресурсы и инструменты
         doc.add_paragraph()
-        doc.add_heading('НЕОБХОДИМЫЕ РЕСУРСЫ', 2)
-        resources_p = doc.add_paragraph()
-        resources_p.add_run('Инструменты и материалы: ').bold = True
-        resources_p.add_run(answers.get('q6', 'Не указано'))
+        doc.add_heading('НЕОБХОДИМЫЕ РЕСУРСЫ', 2).alignment = WD_ALIGN_PARAGRAPH.CENTER
+        resources_text = data.get('required_resources', 'Не указано')
+        doc.add_paragraph(f"Инструменты и материалы: {resources_text}")
         
         # Ожидаемые результаты
         doc.add_paragraph()
-        doc.add_heading('ОЖИДАЕМЫЕ РЕЗУЛЬТАТЫ', 2)
-        results_p = doc.add_paragraph()
-        results_p.add_run('Результат выполнения: ').bold = True
-        results_p.add_run(answers.get('q7', 'Не указано'))
+        doc.add_heading('ОЖИДАЕМЫЕ РЕЗУЛЬТАТЫ', 2).alignment = WD_ALIGN_PARAGRAPH.CENTER
+        results_text = data.get('expected_results', 'Не указано')
+        doc.add_paragraph(f"Результат выполнения: {results_text}")
+        
+        # Согласование
+        doc.add_paragraph()
+        doc.add_heading('СОГЛАСОВАНИЕ', 2).alignment = WD_ALIGN_PARAGRAPH.CENTER
+        
+        approval_table = doc.add_table(rows=2, cols=3)
+        approval_table.style = 'Table Grid'
+        
+        # Заголовки
+        headers = ['Разработал', 'Проверил', 'Утвердил']
+        for i, header in enumerate(headers):
+            cell = approval_table.cell(0, i)
+            cell.text = header
+            for paragraph in cell.paragraphs:
+                for run in paragraph.runs:
+                    run.font.bold = True
         
         # Подписи
+        signatures = [
+            data.get('author', '_________________'),
+            data.get('coordinator', '_________________'),
+            data.get('approver', '_________________')
+        ]
+        
+        for i, signature in enumerate(signatures):
+            approval_table.cell(1, i).text = f"{signature}\n(подпись, дата)"
+        
+        # Подпись платформы
         doc.add_paragraph()
-        doc.add_heading('СОГЛАСОВАНИЕ', 2)
-        
-        signatures_table = doc.add_table(rows=2, cols=3)
-        signatures_table.style = 'Table Grid'
-        
-        # Заголовки подписей
-        sig_headers = ['Разработал', 'Проверил', 'Утвердил']
-        for i, header in enumerate(sig_headers):
-            signatures_table.cell(0, i).text = header
-        
-        # Поля для подписей
-        for i in range(3):
-            signatures_table.cell(1, i).text = '________________\n\n(подпись, дата)'
-        
-        # Футер
-        doc.add_paragraph()
-        footer_p = doc.add_paragraph('Создано с помощью платформы HowDo')
-        footer_p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-        footer_p.runs[0].font.size = Pt(10)
-        footer_p.runs[0].font.italic = True
+        footer = doc.add_paragraph('Создано с помощью платформы HowDo')
+        footer.alignment = WD_ALIGN_PARAGRAPH.RIGHT
         
         return doc
     
-    def generate_instruction_docx(self, answers):
+    def generate_instruction_docx(self, data):
         """Генерирует рабочую инструкцию в формате Word"""
         doc = Document()
         
@@ -149,66 +155,73 @@ class DocumentGenerator:
         title = doc.add_heading('РАБОЧАЯ ИНСТРУКЦИЯ', 0)
         title.alignment = WD_ALIGN_PARAGRAPH.CENTER
         
-        subtitle = doc.add_heading(answers.get('q3', 'Процесс'), 1)
-        subtitle.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        # Основная информация
+        doc.add_paragraph()
+        info_table = doc.add_table(rows=5, cols=2)
+        info_table.style = 'Table Grid'
         
-        # Общие сведения
-        doc.add_heading('1. ОБЩИЕ СВЕДЕНИЯ', 2)
-        
-        general_table = doc.add_table(rows=3, cols=2)
-        general_table.style = 'Table Grid'
-        
-        general_data = [
-            ('Компания:', answers.get('q1', 'Не указано')),
-            ('Область применения:', answers.get('q2', 'Не указано')),
-            ('Целевая аудитория:', answers.get('q4', 'Не указано'))
+        info_data = [
+            ('Компания:', data.get('company_name', 'Не указано')),
+            ('Процесс:', data.get('process_name', 'Не указано')),
+            ('Целевая аудитория:', data.get('target_audience', 'Не указано')),
+            ('Версия:', data.get('version', '1.0')),
+            ('Дата создания:', data.get('creation_date', datetime.now().strftime('%d.%m.%Y')))
         ]
         
-        for i, (label, value) in enumerate(general_data):
-            general_table.cell(i, 0).text = label
-            general_table.cell(i, 1).text = value
+        for i, (label, value) in enumerate(info_data):
+            info_table.cell(i, 0).text = label
+            info_table.cell(i, 1).text = str(value)
         
-        # Пошаговая инструкция
-        doc.add_heading('2. ПОШАГОВАЯ ИНСТРУКЦИЯ', 2)
+        # Цель и область применения
+        doc.add_paragraph()
+        doc.add_heading('ЦЕЛЬ И ОБЛАСТЬ ПРИМЕНЕНИЯ', 2)
+        doc.add_paragraph(f"Сфера деятельности: {data.get('business_area', 'Не указано')}")
+        doc.add_paragraph(f"Процесс: {data.get('process_name', 'Не указано')}")
         
-        steps_text = answers.get('q5', '')
-        steps = [step.strip() for step in steps_text.split('.') if step.strip()]
-        
-        if steps:
-            for i, step in enumerate(steps, 1):
-                step_heading = doc.add_heading(f'Шаг {i}', 3)
-                doc.add_paragraph(step)
+        # Пошаговые инструкции
+        doc.add_paragraph()
+        doc.add_heading('ПОШАГОВЫЕ ИНСТРУКЦИИ', 2)
+        steps_text = data.get('process_steps', 'Не указано')
+        doc.add_paragraph(steps_text)
         
         # Необходимые ресурсы
-        doc.add_heading('3. НЕОБХОДИМЫЕ РЕСУРСЫ', 2)
-        doc.add_paragraph(answers.get('q6', 'Не указано'))
-        
-        # Контроль качества
-        doc.add_heading('4. КОНТРОЛЬ КАЧЕСТВА', 2)
-        doc.add_paragraph(f"Ожидаемый результат: {answers.get('q7', 'Не указано')}")
-        
-        # Подписи
         doc.add_paragraph()
-        doc.add_heading('ЛИСТ СОГЛАСОВАНИЯ', 2)
+        doc.add_heading('НЕОБХОДИМЫЕ РЕСУРСЫ', 2)
+        doc.add_paragraph(data.get('required_resources', 'Не указано'))
         
-        signatures_table = doc.add_table(rows=2, cols=2)
-        signatures_table.style = 'Table Grid'
-        
-        signatures_table.cell(0, 0).text = 'Разработал'
-        signatures_table.cell(0, 1).text = 'Утвердил'
-        signatures_table.cell(1, 0).text = '________________\n(подпись, дата)'
-        signatures_table.cell(1, 1).text = '________________\n(подпись, дата)'
-        
-        # Футер
+        # Ожидаемые результаты
         doc.add_paragraph()
-        footer_p = doc.add_paragraph('Создано с помощью платформы HowDo')
-        footer_p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-        footer_p.runs[0].font.size = Pt(10)
-        footer_p.runs[0].font.italic = True
+        doc.add_heading('ОЖИДАЕМЫЕ РЕЗУЛЬТАТЫ', 2)
+        doc.add_paragraph(data.get('expected_results', 'Не указано'))
+        
+        # Согласование
+        doc.add_paragraph()
+        doc.add_heading('СОГЛАСОВАНИЕ', 2)
+        
+        approval_table = doc.add_table(rows=2, cols=3)
+        approval_table.style = 'Table Grid'
+        
+        headers = ['Разработал', 'Проверил', 'Утвердил']
+        for i, header in enumerate(headers):
+            approval_table.cell(0, i).text = header
+        
+        signatures = [
+            data.get('author', '_________________'),
+            data.get('coordinator', '_________________'),
+            data.get('approver', '_________________')
+        ]
+        
+        for i, signature in enumerate(signatures):
+            approval_table.cell(1, i).text = f"{signature}\n(подпись, дата)"
+        
+        # Подпись платформы
+        doc.add_paragraph()
+        footer = doc.add_paragraph('Создано с помощью платформы HowDo')
+        footer.alignment = WD_ALIGN_PARAGRAPH.RIGHT
         
         return doc
     
-    def generate_procedure_docx(self, answers):
+    def generate_procedure_docx(self, data):
         """Генерирует стандарт процедуры в формате Word"""
         doc = Document()
         
@@ -222,125 +235,116 @@ class DocumentGenerator:
         title = doc.add_heading('СТАНДАРТ ПРОЦЕДУРЫ', 0)
         title.alignment = WD_ALIGN_PARAGRAPH.CENTER
         
-        subtitle = doc.add_heading(answers.get('q3', 'Процедура'), 1)
-        subtitle.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        
-        # Реквизиты документа
+        # Основная информация
         doc.add_paragraph()
-        req_table = doc.add_table(rows=3, cols=2)
-        req_table.style = 'Table Grid'
+        info_table = doc.add_table(rows=5, cols=2)
+        info_table.style = 'Table Grid'
         
-        req_data = [
-            ('Организация:', answers.get('q1', 'Не указано')),
-            ('Версия:', '1.0'),
-            ('Дата утверждения:', datetime.now().strftime('%d.%m.%Y'))
+        info_data = [
+            ('Компания:', data.get('company_name', 'Не указано')),
+            ('Процедура:', data.get('process_name', 'Не указано')),
+            ('Ответственные:', data.get('target_audience', 'Не указано')),
+            ('Версия:', data.get('version', '1.0')),
+            ('Дата создания:', data.get('creation_date', datetime.now().strftime('%d.%m.%Y')))
         ]
         
-        for i, (label, value) in enumerate(req_data):
-            req_table.cell(i, 0).text = label
-            req_table.cell(i, 1).text = value
+        for i, (label, value) in enumerate(info_data):
+            info_table.cell(i, 0).text = label
+            info_table.cell(i, 1).text = str(value)
         
-        # Назначение и область применения
-        doc.add_heading('1. НАЗНАЧЕНИЕ И ОБЛАСТЬ ПРИМЕНЕНИЯ', 2)
-        doc.add_paragraph(f"Настоящая процедура регламентирует порядок выполнения процесса '{answers.get('q3', 'Не указано')}' в {answers.get('q1', 'организации')}.")
-        doc.add_paragraph(f"Процедура применяется: {answers.get('q4', 'Не указано')}")
-        
-        # Ответственность
-        doc.add_heading('2. ОТВЕТСТВЕННОСТЬ', 2)
-        doc.add_paragraph(f"Ответственные лица: {answers.get('q4', 'Не указано')}")
+        # Назначение процедуры
+        doc.add_paragraph()
+        doc.add_heading('НАЗНАЧЕНИЕ ПРОЦЕДУРЫ', 2)
+        doc.add_paragraph(f"Область применения: {data.get('business_area', 'Не указано')}")
         
         # Описание процедуры
-        doc.add_heading('3. ОПИСАНИЕ ПРОЦЕДУРЫ', 2)
-        
-        steps_text = answers.get('q5', '')
-        steps = [step.strip() for step in steps_text.split('.') if step.strip()]
-        
-        if steps:
-            proc_table = doc.add_table(rows=len(steps) + 1, cols=3)
-            proc_table.style = 'Table Grid'
-            
-            # Заголовки
-            headers = ['№', 'Этап процедуры', 'Ответственный']
-            for i, header in enumerate(headers):
-                cell = proc_table.cell(0, i)
-                cell.text = header
-                for paragraph in cell.paragraphs:
-                    for run in paragraph.runs:
-                        run.font.bold = True
-            
-            # Заполнение этапов
-            for i, step in enumerate(steps, 1):
-                proc_table.cell(i, 0).text = str(i)
-                proc_table.cell(i, 1).text = step
-                proc_table.cell(i, 2).text = answers.get('q4', 'Не указано')
+        doc.add_paragraph()
+        doc.add_heading('ОПИСАНИЕ ПРОЦЕДУРЫ', 2)
+        doc.add_paragraph(data.get('process_steps', 'Не указано'))
         
         # Ресурсы
-        doc.add_heading('4. НЕОБХОДИМЫЕ РЕСУРСЫ', 2)
-        doc.add_paragraph(answers.get('q6', 'Не указано'))
-        
-        # Контроль и мониторинг
-        doc.add_heading('5. КОНТРОЛЬ И МОНИТОРИНГ', 2)
-        doc.add_paragraph(f"Показатели эффективности: {answers.get('q7', 'Не указано')}")
-        
-        # Лист согласования
         doc.add_paragraph()
-        doc.add_heading('ЛИСТ СОГЛАСОВАНИЯ И УТВЕРЖДЕНИЯ', 2)
+        doc.add_heading('НЕОБХОДИМЫЕ РЕСУРСЫ', 2)
+        doc.add_paragraph(data.get('required_resources', 'Не указано'))
+        
+        # Критерии качества
+        doc.add_paragraph()
+        doc.add_heading('КРИТЕРИИ КАЧЕСТВА', 2)
+        doc.add_paragraph(data.get('expected_results', 'Не указано'))
+        
+        # Согласование
+        doc.add_paragraph()
+        doc.add_heading('СОГЛАСОВАНИЕ', 2)
         
         approval_table = doc.add_table(rows=2, cols=3)
         approval_table.style = 'Table Grid'
         
-        approval_headers = ['Разработал', 'Согласовал', 'Утвердил']
-        for i, header in enumerate(approval_headers):
+        headers = ['Разработал', 'Проверил', 'Утвердил']
+        for i, header in enumerate(headers):
             approval_table.cell(0, i).text = header
         
-        for i in range(3):
-            approval_table.cell(1, i).text = '________________\n(подпись, дата)'
+        signatures = [
+            data.get('author', '_________________'),
+            data.get('coordinator', '_________________'),
+            data.get('approver', '_________________')
+        ]
         
-        # Футер
+        for i, signature in enumerate(signatures):
+            approval_table.cell(1, i).text = f"{signature}\n(подпись, дата)"
+        
+        # Подпись платформы
         doc.add_paragraph()
-        footer_p = doc.add_paragraph('Создано с помощью платформы HowDo')
-        footer_p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-        footer_p.runs[0].font.size = Pt(10)
-        footer_p.runs[0].font.italic = True
+        footer = doc.add_paragraph('Создано с помощью платформы HowDo')
+        footer.alignment = WD_ALIGN_PARAGRAPH.RIGHT
         
         return doc
     
-    def generate_docx(self, document_type, answers):
-        """Основная функция генерации Word документа"""
-        parsed_answers = self.parse_answers(answers)
-        
-        if document_type == 'sok':
-            return self.generate_sok_docx(parsed_answers)
-        elif document_type == 'instruction':
-            return self.generate_instruction_docx(parsed_answers)
-        elif document_type == 'procedure':
-            return self.generate_procedure_docx(parsed_answers)
-        else:
-            raise ValueError(f"Неизвестный тип документа: {document_type}")
+    # HTML методы для предварительного просмотра (упрощенные версии)
+    def generate_sok_html(self, data):
+        """Генерирует HTML для предварительного просмотра СОК"""
+        html = f"""
+        <html>
+        <head>
+            <meta charset="utf-8">
+            <title>СОК - {data.get('process_name', 'Документ')}</title>
+            <style>
+                body {{ font-family: 'Times New Roman', serif; margin: 40px; }}
+                h1 {{ text-align: center; }}
+                table {{ border-collapse: collapse; width: 100%; margin: 20px 0; }}
+                th, td {{ border: 1px solid black; padding: 8px; text-align: left; }}
+                th {{ background-color: #f2f2f2; font-weight: bold; }}
+            </style>
+        </head>
+        <body>
+            <h1>СТАНДАРТНАЯ ОПЕРАЦИОННАЯ КАРТА (СОК)</h1>
+            
+            <table>
+                <tr><td><strong>Компания:</strong></td><td>{data.get('company_name', 'Не указано')}</td></tr>
+                <tr><td><strong>Операция:</strong></td><td>{data.get('process_name', 'Не указано')}</td></tr>
+                <tr><td><strong>Исполнители:</strong></td><td>{data.get('target_audience', 'Не указано')}</td></tr>
+                <tr><td><strong>Дата создания:</strong></td><td>{data.get('creation_date', datetime.now().strftime('%d.%m.%Y'))}</td></tr>
+            </table>
+            
+            <h2>ПОСЛЕДОВАТЕЛЬНОСТЬ ОПЕРАЦИЙ</h2>
+            <p>{data.get('process_steps', 'Не указано')}</p>
+            
+            <h2>НЕОБХОДИМЫЕ РЕСУРСЫ</h2>
+            <p>{data.get('required_resources', 'Не указано')}</p>
+            
+            <h2>ОЖИДАЕМЫЕ РЕЗУЛЬТАТЫ</h2>
+            <p>{data.get('expected_results', 'Не указано')}</p>
+            
+            <p style="text-align: right; margin-top: 40px;"><em>Создано с помощью платформы HowDo</em></p>
+        </body>
+        </html>
+        """
+        return html
     
-    def save_docx(self, document_type, answers, output_path):
-        """Сохраняет Word документ в файл"""
-        doc = self.generate_docx(document_type, answers)
-        doc.save(output_path)
-        return output_path
-
-# Пример использования
-if __name__ == "__main__":
-    generator = DocumentGenerator()
+    def generate_instruction_html(self, data):
+        """Генерирует HTML для предварительного просмотра инструкции"""
+        return self.generate_sok_html(data).replace('СТАНДАРТНАЯ ОПЕРАЦИОННАЯ КАРТА (СОК)', 'РАБОЧАЯ ИНСТРУКЦИЯ')
     
-    # Тестовые данные
-    test_answers = {
-        'q1': 'ООО "Тест Компани"',
-        'q2': 'Производство',
-        'q3': 'Сборка изделия',
-        'q4': 'Рабочие сборочного участка',
-        'q5': 'Подготовка рабочего места. Получение деталей. Сборка узла. Контроль качества. Упаковка',
-        'q6': 'Отвертка, ключи, измерительные инструменты',
-        'q7': 'Качественно собранное изделие без дефектов'
-    }
-    
-    # Генерируем Word документ для СОК
-    output_path = '/home/ubuntu/test_sok.docx'
-    generator.save_docx('sok', test_answers, output_path)
-    print(f"Word документ сохранен: {output_path}")
+    def generate_procedure_html(self, data):
+        """Генерирует HTML для предварительного просмотра процедуры"""
+        return self.generate_sok_html(data).replace('СТАНДАРТНАЯ ОПЕРАЦИОННАЯ КАРТА (СОК)', 'СТАНДАРТ ПРОЦЕДУРЫ')
 
