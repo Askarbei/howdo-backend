@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Стандарт процедуры</title>
+    <style>
+        body {
+            font-family: 'Times New Roman', serif;
+            font-size: 12pt;
+            line-height: 1.4;
+            margin: 20px;
+            color: #000;
+        }
+        .document-header {
+            border: 2px solid #000;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+        .company-info {
+            text-align: center;
+            margin-bottom: 15px;
+        }
+        .company-name {
+            font-size: 14pt;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        .doc-details {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 10px;
+            font-size: 10pt;
+        }
+        .doc-field {
+            border: 1px solid #000;
+            padding: 5px;
+            text-align: center;
+        }
+        .title {
+            text-align: center;
+            font-size: 16pt;
+            font-weight: bold;
+            margin: 20px 0;
+            text-transform: uppercase;
+        }
+        .section {
+            margin-bottom: 20px;
+        }
+        .section-number {
+            font-size: 14pt;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+        .subsection {
+            margin-bottom: 15px;
+            margin-left: 20px;
+        }
+        .subsection-title {
+            font-weight: bold;
+            margin-bottom: 8px;
+        }
+        .content {
+            text-align: justify;
+            margin-bottom: 10px;
+        }
+        .procedure-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 15px 0;
+        }
+        .procedure-table th,
+        .procedure-table td {
+            border: 1px solid #000;
+            padding: 8px;
+            text-align: left;
+            vertical-align: top;
+        }
+        .procedure-table th {
+            background-color: #f0f0f0;
+            font-weight: bold;
+            font-size: 11pt;
+            text-align: center;
+        }
+        .step-number {
+            text-align: center;
+            width: 40px;
+            font-weight: bold;
+        }
+        .responsibility-matrix {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 15px 0;
+        }
+        .responsibility-matrix th,
+        .responsibility-matrix td {
+            border: 1px solid #000;
+            padding: 5px;
+            text-align: center;
+            font-size: 10pt;
+        }
+        .responsibility-matrix th {
+            background-color: #e0e0e0;
+            font-weight: bold;
+        }
+        .approval-section {
+            margin-top: 40px;
+            border-top: 1px solid #000;
+            padding-top: 20px;
+        }
+        .approval-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 30px;
+            margin-top: 20px;
+        }
+        .approval-box {
+            text-align: center;
+        }
+        .signature-line {
+            border-bottom: 1px solid #000;
+            margin: 15px 0 5px 0;
+            height: 20px;
+        }
+        .footer {
+            margin-top: 30px;
+            font-size: 10pt;
+            text-align: right;
+            border-top: 1px solid #ccc;
+            padding-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="document-header">
+        <div class="company-info">
+            <div class="company-name">{{company_name}}</div>
+            <div>{{company_details}}</div>
+        </div>
+        <div class="doc-details">
+            <div class="doc-field">
+                <div><strong>Код документа:</strong></div>
+                <div>{{document_code}}</div>
+            </div>
+            <div class="doc-field">
+                <div><strong>Версия:</strong></div>
+                <div>{{version}}</div>
+            </div>
+            <div class="doc-field">
+                <div><strong>Дата:</strong></div>
+                <div>{{approval_date}}</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="title">
+        СТАНДАРТ ПРОЦЕДУРЫ  
+
+        {{procedure_title}}
+    </div>
+
+    <div class="section">
+        <div class="section-number">1. НАЗНАЧЕНИЕ И ОБЛАСТЬ ПРИМЕНЕНИЯ</div>
+        <div class="subsection">
+            <div class="subsection-title">1.1. Назначение</div>
+            <div class="content">{{purpose}}</div>
+        </div>
+        <div class="subsection">
+            <div class="subsection-title">1.2. Область применения</div>
+            <div class="content">{{scope}}</div>
+        </div>
+        <div class="subsection">
+            <div class="subsection-title">1.3. Нормативные ссылки</div>
+            <div class="content">{{normative_references}}</div>
+        </div>
+    </div>
+
+    <div class="section">
+        <div class="section-number">2. ТЕРМИНЫ И ОПРЕДЕЛЕНИЯ</div>
+        <div class="content">{{terms_definitions}}</div>
+    </div>
+
+    <div class="section">
+        <div class="section-number">3. ОТВЕТСТВЕННОСТЬ</div>
+        <table class="responsibility-matrix">
+            <thead>
+                <tr>
+                    <th style="width: 40%;">Должность/Роль</th>
+                    <th style="width: 60%;">Ответственность</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for responsibility in responsibilities %}
+                <tr>
+                    <td><strong>{{ responsibility.role }}</strong></td>
+                    <td>{{ responsibility.responsibility }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <div class="section">
+        <div class="section-number">4. ОПИСАНИЕ ПРОЦЕДУРЫ</div>
+        <div class="subsection">
+            <div class="subsection-title">4.1. Общий порядок выполнения</div>
+            <table class="procedure-table">
+                <thead>
+                    <tr>
+                        <th class="step-number">№</th>
+                        <th style="width: 25%;">Этап процедуры</th>
+                        <th style="width: 35%;">Описание действий</th>
+                        <th style="width: 20%;">Ответственный</th>
+                        <th style="width: 20%;">Документы/Результат</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for step in procedure_steps %}
+                    <tr>
+                        <td class="step-number">{{ loop.index }}</td>
+                        <td>{{ step.stage }}</td>
+                        <td>{{ step.description }}</td>
+                        <td>{{ step.responsible }}</td>
+                        <td>{{ step.documents }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        <div class="subsection">
+            <div class="subsection-title">4.2. Особые требования</div>
+            <div class="content">{{special_requirements}}</div>
+        </div>
+    </div>
+
+    <div class="section">
+        <div class="section-number">5. ДОКУМЕНТООБОРОТ</div>
+        <div class="subsection">
+            <div class="subsection-title">5.1. Входящие документы</div>
+            <div class="content">{{input_documents}}</div>
+        </div>
+        <div class="subsection">
+            <div class="subsection-title">5.2. Исходящие документы</div>
+            <div class="content">{{output_documents}}</div>
+        </div>
+        <div class="subsection">
+            <div class="subsection-title">5.3. Архивирование</div>
+            <div class="content">{{archiving_rules}}</div>
+        </div>
+    </div>
+
+    <div class="section">
+        <div class="section-number">6. КОНТРОЛЬ И МОНИТОРИНГ</div>
+        <div class="subsection">
+            <div class="subsection-title">6.1. Показатели эффективности</div>
+            <div class="content">{{kpi_indicators}}</div>
+        </div>
+        <div class="subsection">
+            <div class="subsection-title">6.2. Периодичность контроля</div>
+            <div class="content">{{control_frequency}}</div>
+        </div>
+        <div class="subsection">
+            <div class="subsection-title">6.3. Корректирующие действия</div>
+            <div class="content">{{corrective_actions}}</div>
+        </div>
+    </div>
+
+    <div class="approval-section">
+        <div style="font-weight: bold; margin-bottom: 15px;">ЛИСТ СОГЛАСОВАНИЯ И УТВЕРЖДЕНИЯ</div>
+        <div class="approval-grid">
+            <div class="approval-box">
+                <div><strong>Разработал</strong></div>
+                <div class="signature-line"></div>
+                <div>{{developer}}</div>
+                <div style="font-size: 10pt;">{{developer_date}}</div>
+            </div>
+            <div class="approval-box">
+                <div><strong>Согласовал</strong></div>
+                <div class="signature-line"></div>
+                <div>{{coordinator}}</div>
+                <div style="font-size: 10pt;">{{coordinator_date}}</div>
+            </div>
+            <div class="approval-box">
+                <div><strong>Утвердил</strong></div>
+                <div class="signature-line"></div>
+                <div>{{approver}}</div>
+                <div style="font-size: 10pt;">{{approver_date}}</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="footer">
+        <div>Создано с помощью платформы HowDo</div>
+        <div>Дата создания: {{creation_date}}</div>
+    </div>
+</body>
+</html>
