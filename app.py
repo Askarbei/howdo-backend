@@ -71,8 +71,54 @@ def get_documents():
     
     return jsonify({'documents': docs_list})
 
+@app.route('/api/wizard', methods=['POST'])
+def wizard_endpoint():
+    """
+    Endpoint для мастера создания стандартов
+    Делает то же самое что /api/create-standard
+    """
+    global document_counter
+    
+    data = request.get_json()
+    
+    # Извлекаем данные из запроса
+    user_id = data.get('userId')
+    answers = data.get('answers', {})
+    
+    if not user_id:
+        return jsonify({'error': 'Пользователь не авторизован'}), 401
+    
+    # Создаем документ
+    doc_id = document_counter
+    document_counter += 1
+    
+    # Определяем тип документа из ответов
+    document_type = answers.get('q3', 'sok').lower()
+    if document_type not in ['sok', 'instruction', 'procedure']:
+        document_type = 'sok'
+    
+    # Сохраняем документ в базу данных
+    documents_db[doc_id] = {
+        'id': doc_id,
+        'user_id': user_id,
+        'title': answers.get('q4', f'Стандарт {doc_id}'),
+        'document_type': document_type,
+        'answers': answers,
+        'status': 'Завершено',
+        'created_at': datetime.now().isoformat()
+    }
+    
+    return jsonify({
+        'message': 'Стандарт создан успешно!',
+        'document_id': doc_id
+    })
+
 @app.route('/api/create-standard', methods=['POST'])
 def create_standard():
+    """
+    Альтернативный endpoint для создания стандартов
+    Дублирует функционал /api/wizard для совместимости
+    """
     global document_counter
     
     data = request.get_json()
