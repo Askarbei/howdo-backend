@@ -92,16 +92,19 @@ def wizard_endpoint():
     doc_id = document_counter
     document_counter += 1
     
-    # Определяем тип документа из ответов
-    document_type = answers.get('q3', 'sok').lower()
+    # Определяем тип документа из ответов (q1 - первый вопрос о типе документа)
+    document_type = answers.get('q1', 'sok').lower()
     if document_type not in ['sok', 'instruction', 'procedure']:
         document_type = 'sok'
+    
+    # Извлекаем название процесса для заголовка документа
+    process_name = answers.get('q4', f'Стандарт {doc_id}')
     
     # Сохраняем документ в базу данных
     documents_db[doc_id] = {
         'id': doc_id,
         'user_id': user_id,
-        'title': answers.get('q4', f'Стандарт {doc_id}'),
+        'title': process_name,
         'document_type': document_type,
         'answers': answers,
         'status': 'Завершено',
@@ -135,15 +138,18 @@ def create_standard():
     document_counter += 1
     
     # Определяем тип документа из ответов
-    document_type = answers.get('q3', 'sok').lower()
+    document_type = answers.get('q1', 'sok').lower()
     if document_type not in ['sok', 'instruction', 'procedure']:
         document_type = 'sok'
+    
+    # Извлекаем название процесса для заголовка документа
+    process_name = answers.get('q4', f'Стандарт {doc_id}')
     
     # Сохраняем документ в базу данных
     documents_db[doc_id] = {
         'id': doc_id,
         'user_id': user_id,
-        'title': answers.get('q4', f'Стандарт {doc_id}'),
+        'title': process_name,
         'document_type': document_type,
         'answers': answers,
         'status': 'Завершено',
@@ -170,15 +176,24 @@ def export_document(document_id):
         answers = document['answers']
         document_type = document['document_type']
         
-        # Базовые данные для всех типов документов
+        # ИСПРАВЛЕННЫЙ MAPPING ДАННЫХ ИЗ МАСТЕРА:
+        # q1 - тип документа (СОК/Инструкция/Процедура)
+        # q2 - название компании
+        # q3 - сфера деятельности  
+        # q4 - процесс для стандартизации
+        # q5 - целевая аудитория
+        # q6 - основные этапы процесса
+        # q7 - необходимые ресурсы
+        # q8 - ожидаемые результаты
+        
         base_data = {
-            'company_name': answers.get('q1', 'Название компании'),
-            'business_area': answers.get('q2', 'Сфера деятельности'),
-            'process_name': answers.get('q4', 'Название процесса'),
-            'target_audience': answers.get('q5', 'Целевая аудитория'),
-            'process_steps': answers.get('q6', 'Основные этапы'),
-            'required_resources': answers.get('q7', 'Необходимые ресурсы'),
-            'expected_results': answers.get('q8', 'Ожидаемые результаты'),
+            'company_name': answers.get('q2', 'Не указано'),  # Название компании
+            'business_area': answers.get('q3', 'Не указано'),  # Сфера деятельности
+            'process_name': answers.get('q4', 'Не указано'),   # Процесс для стандартизации
+            'target_audience': answers.get('q5', 'Не указано'), # Целевая аудитория
+            'process_steps': answers.get('q6', 'Не указано'),   # Основные этапы
+            'required_resources': answers.get('q7', 'Не указано'), # Необходимые ресурсы
+            'expected_results': answers.get('q8', 'Не указано'),   # Ожидаемые результаты
             'creation_date': datetime.now().strftime('%d.%m.%Y'),
             'version': '1.0',
             'author': 'Система HowDo',
@@ -210,7 +225,7 @@ def export_document(document_id):
         
         filename = f"{safe_title}.docx"
         
-        # Отправляем файл
+        # Отправляем файл с правильным MIME-типом
         def remove_file(response):
             try:
                 os.unlink(tmp_file_path)
@@ -243,15 +258,15 @@ def preview_document(document_id):
         answers = document['answers']
         document_type = document['document_type']
         
-        # Базовые данные для всех типов документов
+        # ИСПРАВЛЕННЫЙ MAPPING ДАННЫХ ДЛЯ PREVIEW:
         base_data = {
-            'company_name': answers.get('q1', 'Название компании'),
-            'business_area': answers.get('q2', 'Сфера деятельности'),
-            'process_name': answers.get('q4', 'Название процесса'),
-            'target_audience': answers.get('q5', 'Целевая аудитория'),
-            'process_steps': answers.get('q6', 'Основные этапы'),
-            'required_resources': answers.get('q7', 'Необходимые ресурсы'),
-            'expected_results': answers.get('q8', 'Ожидаемые результаты'),
+            'company_name': answers.get('q2', 'Не указано'),  # Название компании
+            'business_area': answers.get('q3', 'Не указано'),  # Сфера деятельности
+            'process_name': answers.get('q4', 'Не указано'),   # Процесс для стандартизации
+            'target_audience': answers.get('q5', 'Не указано'), # Целевая аудитория
+            'process_steps': answers.get('q6', 'Не указано'),   # Основные этапы
+            'required_resources': answers.get('q7', 'Не указано'), # Необходимые ресурсы
+            'expected_results': answers.get('q8', 'Не указано'),   # Ожидаемые результаты
             'creation_date': datetime.now().strftime('%d.%m.%Y'),
             'version': '1.0',
             'author': 'Система HowDo',
