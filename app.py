@@ -5,7 +5,7 @@ import os
 import tempfile
 import uuid
 from datetime import datetime
-from final_fixed_document_generator import DocumentGenerator
+from document_generator import DocumentGenerator
 
 app = Flask(__name__)
 CORS(app)
