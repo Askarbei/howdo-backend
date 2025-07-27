@@ -1,14 +1,15 @@
 """
-Модуль для генерации документов на основе шаблонов и ответов пользователя
+Модуль для генерации документов в формате Word (.docx)
 """
 
 import json
 import os
 from datetime import datetime
-from jinja2 import Template
-import pdfkit
 from docx import Document
-from docx.shared import Inches
+from docx.shared import Inches, Pt
+from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.enum.table import WD_TABLE_ALIGNMENT
+from docx.oxml.shared import OxmlElement, qn
 import re
 
 class DocumentGenerator:
@@ -20,16 +21,6 @@ class DocumentGenerator:
             'procedure': 'procedure_template.html'
         }
     
-    def load_template(self, document_type):
-        """Загружает HTML шаблон для указанного типа документа"""
-        template_file = self.template_mapping.get(document_type)
-        if not template_file:
-            raise ValueError(f"Неизвестный тип документа: {document_type}")
-        
-        template_path = os.path.join(self.templates_dir, template_file)
-        with open(template_path, 'r', encoding='utf-8') as f:
-            return Template(f.read())
-    
     def parse_answers(self, answers_json):
         """Парсит ответы пользователя из JSON формата"""
         if isinstance(answers_json, str):
@@ -37,203 +28,301 @@ class DocumentGenerator:
         else:
             answers = answers_json
         
-        # Преобразуем ключи q1, q2, ... в понятные названия
-        parsed = {
-            'company_name': answers.get('q1', ''),
-            'business_area': answers.get('q2', ''),
-            'process_name': answers.get('q3', ''),
-            'target_audience': answers.get('q4', ''),
-            'main_steps': answers.get('q5', ''),
-            'required_resources': answers.get('q6', ''),
-            'expected_results': answers.get('q7', '')
-        }
+        # Преобразуем в удобный формат
+        parsed = {}
+        for key, value in answers.items():
+            if key.startswith('q'):
+                parsed[key] = value
         
         return parsed
     
-    def generate_sok_data(self, parsed_answers):
-        """Генерирует данные для шаблона СОК"""
-        current_date = datetime.now().strftime("%d.%m.%Y")
+    def generate_sok_docx(self, answers):
+        """Генерирует СОК в формате Word"""
+        doc = Document()
         
-        # Разбиваем основные шаги на отдельные операции
-        steps_text = parsed_answers['main_steps']
-        steps_list = [step.strip() for step in re.split(r'[.\n;]', steps_text) if step.strip()]
+        # Настройка стилей
+        style = doc.styles['Normal']
+        font = style.font
+        font.name = 'Times New Roman'
+        font.size = Pt(12)
         
-        # Создаем структурированные шаги для таблицы
-        structured_steps = []
-        for i, step in enumerate(steps_list[:10], 1):  # Максимум 10 шагов
-            structured_steps.append({
-                'order': f"Шаг {i}",
-                'content': step,
-                'important_points': "Контроль качества выполнения",
-                'tools': "Согласно техкарте",
-                'article': "-",
-                'quantity': "1"
-            })
+        # Заголовок
+        title = doc.add_heading('СТАНДАРТНАЯ ОПЕРАЦИОННАЯ КАРТА (СОК)', 0)
+        title.alignment = WD_ALIGN_PARAGRAPH.CENTER
         
-        return {
-            'operation_name': parsed_answers['process_name'],
-            'operation_number': "001",
-            'equipment': parsed_answers['required_resources'],
-            'operation_time': "Согласно нормативу",
-            'work_position': parsed_answers['target_audience'],
-            'steps': structured_steps,
-            'safety_risks': "Соблюдение техники безопасности",
-            'safety_equipment': "Согласно требованиям ОТ",
-            'approval_date': current_date
-        }
-    
-    def generate_instruction_data(self, parsed_answers):
-        """Генерирует данные для шаблона рабочей инструкции"""
-        current_date = datetime.now().strftime("%d.%m.%Y")
+        # Основная информация
+        doc.add_paragraph()
+        info_table = doc.add_table(rows=4, cols=2)
+        info_table.style = 'Table Grid'
         
-        # Разбиваем шаги на подготовительные, основные и завершающие
-        steps_text = parsed_answers['main_steps']
-        all_steps = [step.strip() for step in re.split(r'[.\n;]', steps_text) if step.strip()]
-        
-        # Распределяем шаги по категориям
-        total_steps = len(all_steps)
-        prep_count = max(1, total_steps // 3)
-        final_count = max(1, total_steps // 4)
-        
-        preparation_steps = all_steps[:prep_count]
-        main_steps = all_steps[prep_count:-final_count] if final_count < total_steps else all_steps[prep_count:]
-        final_steps = all_steps[-final_count:] if final_count < total_steps else ["Завершение процесса"]
-        
-        # Парсим ресурсы
-        resources_text = parsed_answers['required_resources']
-        resources_list = [res.strip() for res in re.split(r'[,;\n]', resources_text) if res.strip()]
-        resources = []
-        for resource in resources_list[:5]:  # Максимум 5 ресурсов
-            resources.append({
-                'name': resource,
-                'quantity': "По потребности",
-                'note': "Обязательно"
-            })
-        
-        return {
-            'instruction_title': parsed_answers['process_name'],
-            'approval_date': current_date,
-            'valid_until': datetime(datetime.now().year + 1, 12, 31).strftime("%d.%m.%Y"),
-            'purpose': f"Стандартизация процесса {parsed_answers['process_name']} в {parsed_answers['business_area']}",
-            'scope': f"Применяется для {parsed_answers['target_audience']}",
-            'responsible_persons': parsed_answers['target_audience'],
-            'qualification_requirements': "Согласно должностной инструкции",
-            'resources': resources,
-            'preparation_steps': preparation_steps,
-            'main_steps': main_steps,
-            'final_steps': final_steps,
-            'important_notes': "Строго соблюдать последовательность операций",
-            'quality_criteria': parsed_answers['expected_results'],
-            'control_methods': "Визуальный контроль, проверка результата",
-            'expected_results': parsed_answers['expected_results'],
-            'safety_requirements': "Соблюдение требований охраны труда",
-            'developer': parsed_answers['company_name'],
-            'approver': "Руководитель подразделения"
-        }
-    
-    def generate_procedure_data(self, parsed_answers):
-        """Генерирует данные для шаблона стандарта процедуры"""
-        current_date = datetime.now().strftime("%d.%m.%Y")
-        
-        # Создаем шаги процедуры
-        steps_text = parsed_answers['main_steps']
-        steps_list = [step.strip() for step in re.split(r'[.\n;]', steps_text) if step.strip()]
-        
-        procedure_steps = []
-        for i, step in enumerate(steps_list[:8], 1):  # Максимум 8 шагов
-            procedure_steps.append({
-                'stage': f"Этап {i}",
-                'description': step,
-                'responsible': parsed_answers['target_audience'],
-                'documents': "Согласно регламенту"
-            })
-        
-        # Матрица ответственности
-        responsibilities = [
-            {
-                'role': 'Исполнитель',
-                'responsibility': 'Выполнение процедуры согласно стандарту'
-            },
-            {
-                'role': 'Контролер',
-                'responsibility': 'Контроль качества выполнения'
-            },
-            {
-                'role': 'Руководитель',
-                'responsibility': 'Общий надзор и утверждение результатов'
-            }
+        info_data = [
+            ('Компания:', answers.get('q1', 'Не указано')),
+            ('Операция:', answers.get('q3', 'Не указано')),
+            ('Исполнители:', answers.get('q4', 'Не указано')),
+            ('Дата создания:', datetime.now().strftime('%d.%m.%Y'))
         ]
         
-        return {
-            'company_name': parsed_answers['company_name'],
-            'company_details': f"Сфера деятельности: {parsed_answers['business_area']}",
-            'document_code': f"СП-{datetime.now().strftime('%Y%m%d')}-001",
-            'version': "1.0",
-            'approval_date': current_date,
-            'procedure_title': parsed_answers['process_name'],
-            'purpose': f"Регламентация процесса {parsed_answers['process_name']}",
-            'scope': f"Процедура применяется в {parsed_answers['business_area']}",
-            'normative_references': "Внутренние стандарты организации",
-            'terms_definitions': "Термины используются в соответствии с принятыми в организации определениями",
-            'responsibilities': responsibilities,
-            'procedure_steps': procedure_steps,
-            'special_requirements': "Особые требования отсутствуют",
-            'input_documents': "Заявка на выполнение процедуры",
-            'output_documents': "Отчет о выполнении процедуры",
-            'archiving_rules': "Документы хранятся в течение 3 лет",
-            'kpi_indicators': parsed_answers['expected_results'],
-            'control_frequency': "Ежемесячно",
-            'corrective_actions': "При выявлении несоответствий - немедленная корректировка",
-            'developer': parsed_answers['company_name'],
-            'coordinator': "Менеджер по качеству",
-            'approver': "Генеральный директор",
-            'developer_date': current_date,
-            'coordinator_date': current_date,
-            'approver_date': current_date,
-            'creation_date': current_date
-        }
+        for i, (label, value) in enumerate(info_data):
+            info_table.cell(i, 0).text = label
+            info_table.cell(i, 1).text = value
+        
+        # Таблица операций
+        doc.add_paragraph()
+        doc.add_heading('ПОСЛЕДОВАТЕЛЬНОСТЬ ОПЕРАЦИЙ', 2)
+        
+        # Парсим шаги из q5
+        steps_text = answers.get('q5', '')
+        steps = [step.strip() for step in steps_text.split('.') if step.strip()]
+        
+        if steps:
+            ops_table = doc.add_table(rows=len(steps) + 1, cols=4)
+            ops_table.style = 'Table Grid'
+            ops_table.alignment = WD_TABLE_ALIGNMENT.CENTER
+            
+            # Заголовки таблицы
+            headers = ['№', 'Операция', 'Описание', 'Контроль']
+            for i, header in enumerate(headers):
+                cell = ops_table.cell(0, i)
+                cell.text = header
+                # Жирный шрифт для заголовков
+                for paragraph in cell.paragraphs:
+                    for run in paragraph.runs:
+                        run.font.bold = True
+            
+            # Заполнение операций
+            for i, step in enumerate(steps, 1):
+                ops_table.cell(i, 0).text = str(i)
+                ops_table.cell(i, 1).text = f"Шаг {i}"
+                ops_table.cell(i, 2).text = step
+                ops_table.cell(i, 3).text = "✓"
+        
+        # Ресурсы и инструменты
+        doc.add_paragraph()
+        doc.add_heading('НЕОБХОДИМЫЕ РЕСУРСЫ', 2)
+        resources_p = doc.add_paragraph()
+        resources_p.add_run('Инструменты и материалы: ').bold = True
+        resources_p.add_run(answers.get('q6', 'Не указано'))
+        
+        # Ожидаемые результаты
+        doc.add_paragraph()
+        doc.add_heading('ОЖИДАЕМЫЕ РЕЗУЛЬТАТЫ', 2)
+        results_p = doc.add_paragraph()
+        results_p.add_run('Результат выполнения: ').bold = True
+        results_p.add_run(answers.get('q7', 'Не указано'))
+        
+        # Подписи
+        doc.add_paragraph()
+        doc.add_heading('СОГЛАСОВАНИЕ', 2)
+        
+        signatures_table = doc.add_table(rows=2, cols=3)
+        signatures_table.style = 'Table Grid'
+        
+        # Заголовки подписей
+        sig_headers = ['Разработал', 'Проверил', 'Утвердил']
+        for i, header in enumerate(sig_headers):
+            signatures_table.cell(0, i).text = header
+        
+        # Поля для подписей
+        for i in range(3):
+            signatures_table.cell(1, i).text = '________________\n\n(подпись, дата)'
+        
+        # Футер
+        doc.add_paragraph()
+        footer_p = doc.add_paragraph('Создано с помощью платформы HowDo')
+        footer_p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+        footer_p.runs[0].font.size = Pt(10)
+        footer_p.runs[0].font.italic = True
+        
+        return doc
     
-    def generate_html(self, document_type, answers_json):
-        """Генерирует HTML документ на основе типа и ответов"""
-        template = self.load_template(document_type)
-        parsed_answers = self.parse_answers(answers_json)
+    def generate_instruction_docx(self, answers):
+        """Генерирует рабочую инструкцию в формате Word"""
+        doc = Document()
+        
+        # Настройка стилей
+        style = doc.styles['Normal']
+        font = style.font
+        font.name = 'Times New Roman'
+        font.size = Pt(12)
+        
+        # Заголовок
+        title = doc.add_heading('РАБОЧАЯ ИНСТРУКЦИЯ', 0)
+        title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        
+        subtitle = doc.add_heading(answers.get('q3', 'Процесс'), 1)
+        subtitle.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        
+        # Общие сведения
+        doc.add_heading('1. ОБЩИЕ СВЕДЕНИЯ', 2)
+        
+        general_table = doc.add_table(rows=3, cols=2)
+        general_table.style = 'Table Grid'
+        
+        general_data = [
+            ('Компания:', answers.get('q1', 'Не указано')),
+            ('Область применения:', answers.get('q2', 'Не указано')),
+            ('Целевая аудитория:', answers.get('q4', 'Не указано'))
+        ]
+        
+        for i, (label, value) in enumerate(general_data):
+            general_table.cell(i, 0).text = label
+            general_table.cell(i, 1).text = value
+        
+        # Пошаговая инструкция
+        doc.add_heading('2. ПОШАГОВАЯ ИНСТРУКЦИЯ', 2)
+        
+        steps_text = answers.get('q5', '')
+        steps = [step.strip() for step in steps_text.split('.') if step.strip()]
+        
+        if steps:
+            for i, step in enumerate(steps, 1):
+                step_heading = doc.add_heading(f'Шаг {i}', 3)
+                doc.add_paragraph(step)
+        
+        # Необходимые ресурсы
+        doc.add_heading('3. НЕОБХОДИМЫЕ РЕСУРСЫ', 2)
+        doc.add_paragraph(answers.get('q6', 'Не указано'))
+        
+        # Контроль качества
+        doc.add_heading('4. КОНТРОЛЬ КАЧЕСТВА', 2)
+        doc.add_paragraph(f"Ожидаемый результат: {answers.get('q7', 'Не указано')}")
+        
+        # Подписи
+        doc.add_paragraph()
+        doc.add_heading('ЛИСТ СОГЛАСОВАНИЯ', 2)
+        
+        signatures_table = doc.add_table(rows=2, cols=2)
+        signatures_table.style = 'Table Grid'
+        
+        signatures_table.cell(0, 0).text = 'Разработал'
+        signatures_table.cell(0, 1).text = 'Утвердил'
+        signatures_table.cell(1, 0).text = '________________\n(подпись, дата)'
+        signatures_table.cell(1, 1).text = '________________\n(подпись, дата)'
+        
+        # Футер
+        doc.add_paragraph()
+        footer_p = doc.add_paragraph('Создано с помощью платформы HowDo')
+        footer_p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+        footer_p.runs[0].font.size = Pt(10)
+        footer_p.runs[0].font.italic = True
+        
+        return doc
+    
+    def generate_procedure_docx(self, answers):
+        """Генерирует стандарт процедуры в формате Word"""
+        doc = Document()
+        
+        # Настройка стилей
+        style = doc.styles['Normal']
+        font = style.font
+        font.name = 'Times New Roman'
+        font.size = Pt(12)
+        
+        # Заголовок
+        title = doc.add_heading('СТАНДАРТ ПРОЦЕДУРЫ', 0)
+        title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        
+        subtitle = doc.add_heading(answers.get('q3', 'Процедура'), 1)
+        subtitle.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        
+        # Реквизиты документа
+        doc.add_paragraph()
+        req_table = doc.add_table(rows=3, cols=2)
+        req_table.style = 'Table Grid'
+        
+        req_data = [
+            ('Организация:', answers.get('q1', 'Не указано')),
+            ('Версия:', '1.0'),
+            ('Дата утверждения:', datetime.now().strftime('%d.%m.%Y'))
+        ]
+        
+        for i, (label, value) in enumerate(req_data):
+            req_table.cell(i, 0).text = label
+            req_table.cell(i, 1).text = value
+        
+        # Назначение и область применения
+        doc.add_heading('1. НАЗНАЧЕНИЕ И ОБЛАСТЬ ПРИМЕНЕНИЯ', 2)
+        doc.add_paragraph(f"Настоящая процедура регламентирует порядок выполнения процесса '{answers.get('q3', 'Не указано')}' в {answers.get('q1', 'организации')}.")
+        doc.add_paragraph(f"Процедура применяется: {answers.get('q4', 'Не указано')}")
+        
+        # Ответственность
+        doc.add_heading('2. ОТВЕТСТВЕННОСТЬ', 2)
+        doc.add_paragraph(f"Ответственные лица: {answers.get('q4', 'Не указано')}")
+        
+        # Описание процедуры
+        doc.add_heading('3. ОПИСАНИЕ ПРОЦЕДУРЫ', 2)
+        
+        steps_text = answers.get('q5', '')
+        steps = [step.strip() for step in steps_text.split('.') if step.strip()]
+        
+        if steps:
+            proc_table = doc.add_table(rows=len(steps) + 1, cols=3)
+            proc_table.style = 'Table Grid'
+            
+            # Заголовки
+            headers = ['№', 'Этап процедуры', 'Ответственный']
+            for i, header in enumerate(headers):
+                cell = proc_table.cell(0, i)
+                cell.text = header
+                for paragraph in cell.paragraphs:
+                    for run in paragraph.runs:
+                        run.font.bold = True
+            
+            # Заполнение этапов
+            for i, step in enumerate(steps, 1):
+                proc_table.cell(i, 0).text = str(i)
+                proc_table.cell(i, 1).text = step
+                proc_table.cell(i, 2).text = answers.get('q4', 'Не указано')
+        
+        # Ресурсы
+        doc.add_heading('4. НЕОБХОДИМЫЕ РЕСУРСЫ', 2)
+        doc.add_paragraph(answers.get('q6', 'Не указано'))
+        
+        # Контроль и мониторинг
+        doc.add_heading('5. КОНТРОЛЬ И МОНИТОРИНГ', 2)
+        doc.add_paragraph(f"Показатели эффективности: {answers.get('q7', 'Не указано')}")
+        
+        # Лист согласования
+        doc.add_paragraph()
+        doc.add_heading('ЛИСТ СОГЛАСОВАНИЯ И УТВЕРЖДЕНИЯ', 2)
+        
+        approval_table = doc.add_table(rows=2, cols=3)
+        approval_table.style = 'Table Grid'
+        
+        approval_headers = ['Разработал', 'Согласовал', 'Утвердил']
+        for i, header in enumerate(approval_headers):
+            approval_table.cell(0, i).text = header
+        
+        for i in range(3):
+            approval_table.cell(1, i).text = '________________\n(подпись, дата)'
+        
+        # Футер
+        doc.add_paragraph()
+        footer_p = doc.add_paragraph('Создано с помощью платформы HowDo')
+        footer_p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+        footer_p.runs[0].font.size = Pt(10)
+        footer_p.runs[0].font.italic = True
+        
+        return doc
+    
+    def generate_docx(self, document_type, answers):
+        """Основная функция генерации Word документа"""
+        parsed_answers = self.parse_answers(answers)
         
         if document_type == 'sok':
-            data = self.generate_sok_data(parsed_answers)
+            return self.generate_sok_docx(parsed_answers)
         elif document_type == 'instruction':
-            data = self.generate_instruction_data(parsed_answers)
+            return self.generate_instruction_docx(parsed_answers)
         elif document_type == 'procedure':
-            data = self.generate_procedure_data(parsed_answers)
+            return self.generate_procedure_docx(parsed_answers)
         else:
-            raise ValueError(f"Неподдерживаемый тип документа: {document_type}")
-        
-        return template.render(**data)
+            raise ValueError(f"Неизвестный тип документа: {document_type}")
     
-    def generate_pdf(self, document_type, answers_json, output_path):
-        """Генерирует PDF документ"""
-        html_content = self.generate_html(document_type, answers_json)
-        
-        # Настройки для PDF
-        options = {
-            'page-size': 'A4',
-            'margin-top': '0.75in',
-            'margin-right': '0.75in',
-            'margin-bottom': '0.75in',
-            'margin-left': '0.75in',
-            'encoding': "UTF-8",
-            'no-outline': None,
-            'enable-local-file-access': None
-        }
-        
-        try:
-            pdfkit.from_string(html_content, output_path, options=options)
-            return output_path
-        except Exception as e:
-            # Fallback: сохраняем как HTML если PDF не работает
-            html_path = output_path.replace('.pdf', '.html')
-            with open(html_path, 'w', encoding='utf-8') as f:
-                f.write(html_content)
-            return html_path
+    def save_docx(self, document_type, answers, output_path):
+        """Сохраняет Word документ в файл"""
+        doc = self.generate_docx(document_type, answers)
+        doc.save(output_path)
+        return output_path
 
 # Пример использования
 if __name__ == "__main__":
@@ -250,6 +339,8 @@ if __name__ == "__main__":
         'q7': 'Качественно собранное изделие без дефектов'
     }
     
-    # Генерируем HTML для СОК
-    html_content = generator.generate_html('sok', test_answers)
-    print("HTML документ сгенерирован успешно!")
+    # Генерируем Word документ для СОК
+    output_path = '/home/ubuntu/test_sok.docx'
+    generator.save_docx('sok', test_answers, output_path)
+    print(f"Word документ сохранен: {output_path}")
+
