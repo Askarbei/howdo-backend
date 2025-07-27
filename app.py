@@ -4,26 +4,75 @@ import json
 import os
 import tempfile
 import uuid
+import sqlite3
 from datetime import datetime
 from document_generator import DocumentGenerator
 
 app = Flask(__name__)
 CORS(app)
 
-# Хранилище документов в памяти (для демонстрации)
-documents_db = {}
-users_db = {}
-
 # Инициализация генератора документов
 generator = DocumentGenerator()
+
+# Инициализация SQLite базы данных
+def init_database():
+    """Создание таблиц в SQLite базе данных"""
+    conn = sqlite3.connect('howdo.db')
+    cursor = conn.cursor()
+    
+    # Таблица пользователей
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS users (
+            id TEXT PRIMARY KEY,
+            email TEXT UNIQUE NOT NULL,
+            password TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        )
+    ''')
+    
+    # Таблица документов
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS documents (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            title TEXT NOT NULL,
+            type TEXT NOT NULL,
+            status TEXT NOT NULL,
+            answers TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (user_id) REFERENCES users (id)
+        )
+    ''')
+    
+    conn.commit()
+    conn.close()
+
+# Инициализация базы данных при запуске
+init_database()
+
+def get_db_connection():
+    """Получение соединения с базой данных"""
+    conn = sqlite3.connect('howdo.db')
+    conn.row_factory = sqlite3.Row
+    return conn
 
 @app.route('/api/health', methods=['GET'])
 def health_check():
     """Проверка состояния API"""
+    conn = get_db_connection()
+    
+    # Подсчет пользователей
+    users_count = conn.execute('SELECT COUNT(*) FROM users').fetchone()[0]
+    
+    # Подсчет документов
+    documents_count = conn.execute('SELECT COUNT(*) FROM documents').fetchone()[0]
+    
+    conn.close()
+    
     return jsonify({
         'status': 'healthy',
-        'documents_count': len(documents_db),
-        'users_count': len(users_db),
+        'documents_count': documents_count,
+        'users_count': users_count,
         'timestamp': datetime.now().isoformat()
     })
 
@@ -38,16 +87,24 @@ def register():
         if not email or not password:
             return jsonify({'error': 'Email и пароль обязательны'}), 400
         
-        if email in users_db:
+        conn = get_db_connection()
+        
+        # Проверка существования пользователя
+        existing_user = conn.execute('SELECT id FROM users WHERE email = ?', (email,)).fetchone()
+        if existing_user:
+            conn.close()
             return jsonify({'error': 'Пользователь уже существует'}), 400
         
+        # Создание нового пользователя
         user_id = str(uuid.uuid4())
-        users_db[email] = {
-            'id': user_id,
-            'email': email,
-            'password': password,  # В реальном приложении нужно хешировать
-            'created_at': datetime.now().isoformat()
-        }
+        conn.execute(
+            'INSERT INTO users (id, email, password, created_at) VALUES (?, ?, ?, ?)',
+            (user_id, email, password, datetime.now().isoformat())
+        )
+        conn.commit()
+        conn.close()
+        
+        print(f"✅ Пользователь зарегистрирован: {email}")
         
         return jsonify({
             'message': 'Пользователь успешно зарегистрирован',
@@ -55,7 +112,8 @@ def register():
         }), 201
         
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        print(f"❌ Ошибка регистрации: {str(e)}")
+        return jsonify({'error': 'Ошибка сервера'}), 500
 
 @app.route('/api/login', methods=['POST'])
 def login():
@@ -68,9 +126,20 @@ def login():
         if not email or not password:
             return jsonify({'error': 'Email и пароль обязательны'}), 400
         
-        user = users_db.get(email)
+        conn = get_db_connection()
+        
+        # Поиск пользователя
+        user = conn.execute(
+            'SELECT id, email, password FROM users WHERE email = ?', 
+            (email,)
+        ).fetchone()
+        
+        conn.close()
+        
         if not user or user['password'] != password:
             return jsonify({'error': 'Неверные учетные данные'}), 401
+        
+        print(f"✅ Пользователь авторизован: {email}")
         
         return jsonify({
             'message': 'Успешная авторизация',
@@ -79,250 +148,222 @@ def login():
         }), 200
         
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        print(f"❌ Ошибка авторизации: {str(e)}")
+        return jsonify({'error': 'Ошибка сервера'}), 500
 
 @app.route('/api/wizard', methods=['POST'])
-def create_document_from_wizard():
-    """Создание документа из мастера (WizardModal.jsx)"""
+def create_standard():
+    """Создание стандарта через мастер"""
     try:
         data = request.get_json()
-        print(f"[DEBUG] Получены данные от мастера: {data}")  # Отладка
-        
         answers = data.get('answers', {})
-        user_id = data.get('userId')
+        user_id = data.get('user_id', 'anonymous')
         
-        if not answers:
-            return jsonify({'error': 'Ответы не предоставлены'}), 400
+        print(f"📝 Получены данные мастера: {answers}")
         
-        # Определяем тип документа из q1
-        document_type = answers.get('q1', 'sok').lower()
-        if document_type not in ['сок', 'рабочая инструкция', 'стандарт процедуры']:
-            document_type = 'sok'  # По умолчанию СОК
-        
-        # Создаем документ
-        document_id = str(uuid.uuid4())
-        
-        # ИСПРАВЛЕННЫЙ MAPPING ДАННЫХ ИЗ МАСТЕРА:
-        document_data = {
-            'id': document_id,
-            'user_id': user_id,
-            'type': document_type,
-            'title': answers.get('q4', 'Новый документ'),  # q4 - процесс
-            'status': 'completed',
-            'created_at': datetime.now().isoformat(),
-            'answers': answers,
-            # Преобразуем answers в структурированные данные:
-            'company_name': answers.get('q2', 'Не указано'),      # q2 - компания
-            'business_area': answers.get('q3', 'Не указано'),     # q3 - сфера деятельности
-            'process_name': answers.get('q4', 'Не указано'),      # q4 - процесс
-            'target_audience': answers.get('q5', 'Не указано'),   # q5 - целевая аудитория
-            'process_steps': answers.get('q6', 'Не указано'),     # q6 - этапы процесса
-            'required_resources': answers.get('q7', 'Не указано'), # q7 - ресурсы
-            'expected_results': answers.get('q8', 'Не указано'),  # q8 - результаты
-            'creation_date': datetime.now().strftime('%d.%m.%Y')
+        # Определение типа документа
+        doc_type_map = {
+            'СОК': 'sok',
+            'Рабочая инструкция': 'instruction', 
+            'Стандарт процедуры': 'procedure'
         }
+        doc_type = doc_type_map.get(answers.get('q1', ''), 'sok')
         
-        print(f"[DEBUG] Структурированные данные: {document_data}")  # Отладка
+        # Создание заголовка документа
+        company_name = answers.get('q2', 'Не указано')
+        process_name = answers.get('q4', 'Не указано')
+        title = f"{company_name} - {process_name}"
         
-        documents_db[document_id] = document_data
+        # Сохранение в базу данных
+        document_id = str(uuid.uuid4())
+        conn = get_db_connection()
+        
+        conn.execute(
+            'INSERT INTO documents (id, user_id, title, type, status, answers, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+            (document_id, user_id, title, doc_type, 'active', json.dumps(answers), datetime.now().isoformat())
+        )
+        conn.commit()
+        conn.close()
+        
+        print(f"✅ Документ создан: {document_id}")
         
         return jsonify({
-            'message': 'Документ успешно создан',
+            'message': 'Стандарт создан успешно',
             'document_id': document_id,
-            'title': document_data['title']
+            'title': title,
+            'type': doc_type
         }), 201
         
     except Exception as e:
-        print(f"[ERROR] Ошибка создания документа: {str(e)}")  # Отладка
-        return jsonify({'error': str(e)}), 500
-
-@app.route('/api/create-standard', methods=['POST'])
-def create_standard():
-    """Альтернативный endpoint для создания стандарта"""
-    return create_document_from_wizard()
-
-@app.route('/api/export/<document_id>', methods=['GET'])
-def export_document(document_id):
-    """Экспорт документа в Word формате"""
-    try:
-        print(f"[DEBUG] Экспорт документа ID: {document_id}")  # Отладка
-        
-        document = documents_db.get(document_id)
-        if not document:
-            return jsonify({'error': 'Документ не найден'}), 404
-        
-        print(f"[DEBUG] Найден документ: {document}")  # Отладка
-        
-        # Подготавливаем данные для генератора
-        base_data = {
-            'company_name': document.get('company_name', 'Не указано'),
-            'business_area': document.get('business_area', 'Не указано'),
-            'process_name': document.get('process_name', 'Не указано'),
-            'target_audience': document.get('target_audience', 'Не указано'),
-            'process_steps': document.get('process_steps', 'Не указано'),
-            'required_resources': document.get('required_resources', 'Не указано'),
-            'expected_results': document.get('expected_results', 'Не указано'),
-            'creation_date': document.get('creation_date', datetime.now().strftime('%d.%m.%Y'))
-        }
-        
-        print(f"[DEBUG] Данные для генератора: {base_data}")  # Отладка
-        
-        # Определяем тип документа
-        doc_type = document.get('type', 'sok').lower()
-        
-        # Генерируем документ
-        if 'сок' in doc_type or doc_type == 'sok':
-            doc = generator.generate_sok_docx(base_data)
-        elif 'инструкция' in doc_type:
-            doc = generator.generate_instruction_docx(base_data)
-        elif 'процедура' in doc_type:
-            doc = generator.generate_procedure_docx(base_data)
-        else:
-            doc = generator.generate_sok_docx(base_data)  # По умолчанию СОК
-        
-        # Создаем временный файл
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.docx') as tmp_file:
-            doc.save(tmp_file.name)
-            tmp_file_path = tmp_file.name
-        
-        # Безопасное имя файла
-        safe_title = document.get('title', 'документ')
-        safe_title = ''.join(c for c in safe_title if c.isalnum() or c in (' ', '-', '_')).strip()
-        filename = f"{safe_title}.docx"
-        
-        print(f"[DEBUG] Отправляем файл: {filename}")  # Отладка
-        
-        # ИСПРАВЛЕННАЯ ОТПРАВКА ФАЙЛА С ПРАВИЛЬНЫМИ ЗАГОЛОВКАМИ:
-        def remove_file(response):
-            try:
-                os.unlink(tmp_file_path)
-            except Exception:
-                pass
-            return response
-        
-        # Отправляем файл с принудительными заголовками
-        response = send_file(
-            tmp_file_path,
-            as_attachment=True,
-            download_name=filename,
-            mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-        )
-        
-        # Добавляем дополнительные заголовки для принудительного скачивания
-        response.headers['Content-Type'] = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-        response.headers['Content-Disposition'] = f'attachment; filename="{filename}"'
-        response.headers['Cache-Control'] = 'no-cache'
-        
-        # Удаляем временный файл после отправки
-        response.call_on_close(lambda: remove_file(response))
-        
-        return response
-        
-    except Exception as e:
-        print(f"[ERROR] Ошибка экспорта: {str(e)}")  # Отладка
-        return jsonify({'error': str(e)}), 500
-
-@app.route('/api/preview/<document_id>', methods=['GET'])
-def preview_document(document_id):
-    """Предварительный просмотр документа в HTML"""
-    try:
-        document = documents_db.get(document_id)
-        if not document:
-            return jsonify({'error': 'Документ не найден'}), 404
-        
-        # Подготавливаем данные для генератора (тот же mapping что и в export)
-        base_data = {
-            'company_name': document.get('company_name', 'Не указано'),
-            'business_area': document.get('business_area', 'Не указано'),
-            'process_name': document.get('process_name', 'Не указано'),
-            'target_audience': document.get('target_audience', 'Не указано'),
-            'process_steps': document.get('process_steps', 'Не указано'),
-            'required_resources': document.get('required_resources', 'Не указано'),
-            'expected_results': document.get('expected_results', 'Не указано'),
-            'creation_date': document.get('creation_date', datetime.now().strftime('%d.%m.%Y'))
-        }
-        
-        # Определяем тип документа
-        doc_type = document.get('type', 'sok').lower()
-        
-        # Генерируем HTML
-        if 'сок' in doc_type or doc_type == 'sok':
-            html_content = generator.generate_sok_html(base_data)
-        elif 'инструкция' in doc_type:
-            html_content = generator.generate_instruction_html(base_data)
-        elif 'процедура' in doc_type:
-            html_content = generator.generate_procedure_html(base_data)
-        else:
-            html_content = generator.generate_sok_html(base_data)
-        
-        return html_content, 200, {'Content-Type': 'text/html; charset=utf-8'}
-        
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        print(f"❌ Ошибка создания стандарта: {str(e)}")
+        return jsonify({'error': 'Ошибка создания стандарта'}), 500
 
 @app.route('/api/documents', methods=['GET'])
 def get_documents():
     """Получение списка документов пользователя"""
     try:
-        user_id = request.args.get('user_id')
+        user_id = request.args.get('user_id', 'anonymous')
         
-        if not user_id:
-            return jsonify({'error': 'user_id обязателен'}), 400
+        conn = get_db_connection()
         
-        # Фильтруем документы по пользователю
-        user_documents = []
-        for doc_id, doc_data in documents_db.items():
-            if doc_data.get('user_id') == user_id:
-                user_documents.append({
-                    'id': doc_id,
-                    'title': doc_data.get('title', 'Без названия'),
-                    'type': doc_data.get('type', 'sok'),
-                    'status': doc_data.get('status', 'draft'),
-                    'created_at': doc_data.get('created_at'),
-                    'company_name': doc_data.get('company_name', 'Не указано')
-                })
+        documents = conn.execute(
+            'SELECT id, title, type, status, created_at FROM documents WHERE user_id = ? ORDER BY created_at DESC',
+            (user_id,)
+        ).fetchall()
         
-        return jsonify(user_documents), 200
+        conn.close()
+        
+        # Преобразование в список словарей
+        documents_list = []
+        for doc in documents:
+            documents_list.append({
+                'id': doc['id'],
+                'title': doc['title'],
+                'type': doc['type'],
+                'status': doc['status'],
+                'created_at': doc['created_at']
+            })
+        
+        print(f"📋 Найдено документов для пользователя {user_id}: {len(documents_list)}")
+        
+        return jsonify({
+            'documents': documents_list,
+            'count': len(documents_list)
+        }), 200
         
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        print(f"❌ Ошибка получения документов: {str(e)}")
+        return jsonify({'error': 'Ошибка получения документов'}), 500
 
-@app.route('/api/documents/<document_id>', methods=['GET'])
-def get_document(document_id):
-    """Получение конкретного документа"""
+@app.route('/api/export/<document_id>', methods=['GET'])
+def export_document(document_id):
+    """Экспорт документа в Word формат"""
     try:
-        document = documents_db.get(document_id)
+        print(f"📤 Запрос экспорта документа: {document_id}")
+        
+        conn = get_db_connection()
+        
+        # Получение документа из базы данных
+        document = conn.execute(
+            'SELECT title, type, answers FROM documents WHERE id = ?',
+            (document_id,)
+        ).fetchone()
+        
+        conn.close()
+        
         if not document:
             return jsonify({'error': 'Документ не найден'}), 404
         
-        return jsonify(document), 200
+        # Парсинг ответов мастера
+        answers = json.loads(document['answers'])
+        doc_type = document['type']
+        
+        print(f"📋 Данные документа: {answers}")
+        print(f"📋 Тип документа: {doc_type}")
+        
+        # Подготовка данных для генератора
+        base_data = {
+            'company_name': answers.get('q2', 'Не указано'),
+            'business_area': answers.get('q3', 'Не указано'),
+            'process_name': answers.get('q4', 'Не указано'),
+            'target_audience': answers.get('q5', 'Не указано'),
+            'process_steps': answers.get('q6', 'Не указано'),
+            'required_resources': answers.get('q7', 'Не указано'),
+            'expected_results': answers.get('q8', 'Не указано')
+        }
+        
+        print(f"📋 Подготовленные данные: {base_data}")
+        
+        # Генерация документа
+        if doc_type == 'sok':
+            doc = generator.generate_sok_docx(base_data)
+        elif doc_type == 'instruction':
+            doc = generator.generate_instruction_docx(base_data)
+        elif doc_type == 'procedure':
+            doc = generator.generate_procedure_docx(base_data)
+        else:
+            doc = generator.generate_sok_docx(base_data)
+        
+        # Создание временного файла
+        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.docx')
+        doc.save(temp_file.name)
+        temp_file.close()
+        
+        # Безопасное имя файла
+        safe_title = "".join(c for c in document['title'] if c.isalnum() or c in (' ', '-', '_')).rstrip()
+        filename = f"{safe_title}.docx"
+        
+        print(f"✅ Документ сгенерирован: {filename}")
+        
+        # Отправка файла с правильными заголовками
+        response = send_file(
+            temp_file.name,
+            as_attachment=True,
+            download_name=filename,
+            mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+        )
+        
+        # Принудительные заголовки для правильного скачивания
+        response.headers['Content-Type'] = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+        response.headers['Content-Disposition'] = f'attachment; filename="{filename}"'
+        
+        # Очистка временного файла после отправки
+        @response.call_on_close
+        def cleanup():
+            try:
+                os.unlink(temp_file.name)
+            except:
+                pass
+        
+        return response
         
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        print(f"❌ Ошибка экспорта: {str(e)}")
+        return jsonify({'error': 'Ошибка экспорта документа'}), 500
 
-@app.route('/api/documents/<document_id>', methods=['DELETE'])
-def delete_document(document_id):
-    """Удаление документа"""
+@app.route('/api/preview/<document_id>', methods=['GET'])
+def preview_document(document_id):
+    """Предварительный просмотр документа"""
     try:
-        if document_id not in documents_db:
+        conn = get_db_connection()
+        
+        document = conn.execute(
+            'SELECT title, type, answers FROM documents WHERE id = ?',
+            (document_id,)
+        ).fetchone()
+        
+        conn.close()
+        
+        if not document:
             return jsonify({'error': 'Документ не найден'}), 404
         
-        del documents_db[document_id]
-        return jsonify({'message': 'Документ успешно удален'}), 200
+        answers = json.loads(document['answers'])
+        
+        # Подготовка данных для предварительного просмотра
+        base_data = {
+            'company_name': answers.get('q2', 'Не указано'),
+            'business_area': answers.get('q3', 'Не указано'),
+            'process_name': answers.get('q4', 'Не указано'),
+            'target_audience': answers.get('q5', 'Не указано'),
+            'process_steps': answers.get('q6', 'Не указано'),
+            'required_resources': answers.get('q7', 'Не указано'),
+            'expected_results': answers.get('q8', 'Не указано')
+        }
+        
+        # Генерация HTML предварительного просмотра
+        html_content = generator.generate_html_preview(base_data, document['type'])
+        
+        return jsonify({
+            'html': html_content,
+            'title': document['title'],
+            'type': document['type']
+        }), 200
         
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        print(f"❌ Ошибка предварительного просмотра: {str(e)}")
+        return jsonify({'error': 'Ошибка предварительного просмотра'}), 500
 
 if __name__ == '__main__':
-    print("🚀 Запуск HOWDO Backend с исправленным Word экспортом...")
-    print("📋 Доступные endpoints:")
-    print("  - POST /api/register - регистрация")
-    print("  - POST /api/login - авторизация")
-    print("  - POST /api/wizard - создание документа из мастера")
-    print("  - GET /api/export/<id> - экспорт в Word")
-    print("  - GET /api/preview/<id> - предварительный просмотр")
-    print("  - GET /api/documents - список документов")
-    print("  - GET /api/health - проверка состояния")
-    
+    print("🚀 Запуск HOWDO Backend с SQLite базой данных...")
     app.run(host='0.0.0.0', port=5000, debug=True)
 
